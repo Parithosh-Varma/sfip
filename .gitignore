@@ -1,0 +1,22 @@
+# Secrets — never commit
+.env
+
+# Runtime state (contains downloaded papers/figures — licensing, plus large)
+data/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# Node / dashboard
+node_modules/
+dashboard/dist/
+
+# Built frontend (rebuild with `npm run build`)
+static/
+
+# OS noise
+.DS_Store
