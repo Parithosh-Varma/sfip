@@ -10,6 +10,12 @@ export default function Candidates({ invId }) {
   const [sel, setSel] = useState(null);
   const [detail, setDetail] = useState(null);
 
+  React.useEffect(() => {
+    const h = (e) => open(e.detail);
+    window.addEventListener('sfip:open-candidate', h);
+    return () => window.removeEventListener('sfip:open-candidate', h);
+  }, []);
+
   usePoll(async () => {
     const d = await api.candidates(invId, {
       ...(verdict ? { verdict } : {}),

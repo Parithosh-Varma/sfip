@@ -17,6 +17,12 @@ export default function App() {
   usePoll(async () => setState(await api.state()), 2500);
   usePoll(async () => setHealth(await fetch('/api/health').then((r) => r.json())), 15000);
 
+  React.useEffect(() => {
+    const h = () => setTab('Candidates');
+    window.addEventListener('sfip:open-candidate', h);
+    return () => window.removeEventListener('sfip:open-candidate', h);
+  }, []);
+
   const invs = state?.investigations || [];
   const active = state?.active || null;
   const invId = active?.investigation?.id || invs[0]?.id || null;

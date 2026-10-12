@@ -128,6 +128,21 @@ code { background: #1c2128; padding: 1px 5px; border-radius: 4px; font-size: 12.
 .report blockquote { border-left: 3px solid var(--amber); margin: 10px 0; padding: 6px 12px; color: var(--muted); }
 
 .graph { width: 100%; background: #0a0e14; border-radius: 6px; }
+.graphsvg svg { aspect-ratio: 1080 / 670; display: block; cursor: grab; }
+.graphsvg svg:active { cursor: grabbing; }
+.graphwrap { display: flex; flex-direction: column; gap: 12px; }
+.graphbar { display: flex; flex-direction: column; gap: 8px; }
+.graphmain { display: grid; grid-template-columns: 1fr 330px; gap: 14px; align-items: start; }
+.graphsvg { min-width: 0; }
+.graphside { max-height: 78vh; overflow-y: auto; position: sticky; top: 70px; }
+.gnode { cursor: pointer; }
+.gnode:hover .node-paper, .gnode:hover .node-fig { stroke: var(--accent); stroke-width: 2; }
+.gnode.sel .node-paper, .gnode.sel .node-fig { stroke: var(--accent); stroke-width: 2.5; }
+.gnode.sel .node-cand { stroke: #fff; stroke-width: 2; }
+.mini-btn { background: #1c2128; color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 5px 10px; cursor: pointer; font-size: 12.5px; }
+.mini-btn:hover { border-color: var(--accent); }
+.inspect-img { width: 100%; border-radius: 6px; background: #fff; margin: 6px 0; }
 .edge { stroke: #3a4149; stroke-width: 1.2; }
 .edge.similarity { stroke: var(--muted); }
 .node-paper { fill: #12233a; stroke: var(--accent); }
