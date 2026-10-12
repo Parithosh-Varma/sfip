@@ -9,6 +9,21 @@ import Activity from './components/Activity.jsx';
 
 const TABS = ['Overview', 'Candidates', 'Papers', 'Graph', 'Reports', 'Activity'];
 
+class TabBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return <div className="card"><h2>this tab crashed</h2>
+        <p className="muted">Copy this to the developer:</p>
+        <pre style={{ whiteSpace: 'pre-wrap' }}>{String(this.state.error?.stack || this.state.error)}</pre>
+        <button className="mini-btn" onClick={() => this.setState({ error: null })}>retry</button>
+      </div>;
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   const [state, setState] = useState(null);
   const [health, setHealth] = useState(null);
@@ -70,12 +85,14 @@ export default function App() {
       <main className="content">
         {!invId && <div className="empty">No investigations yet. Start one with:<br />
           <code>python backend/app/main.py investigate "&lt;DOI or researcher name&gt;"</code></div>}
-        {invId && tab === 'Overview' && <Overview invId={invId} active={active} />}
-        {invId && tab === 'Candidates' && <Candidates invId={invId} />}
-        {invId && tab === 'Papers' && <Papers invId={invId} />}
-        {invId && tab === 'Graph' && <Graph invId={invId} />}
-        {invId && tab === 'Reports' && <Reports invId={invId} />}
-        {invId && tab === 'Activity' && <Activity invId={invId} />}
+        {invId && <TabBoundary key={tab}>
+          {tab === 'Overview' && <Overview invId={invId} active={active} />}
+          {tab === 'Candidates' && <Candidates invId={invId} />}
+          {tab === 'Papers' && <Papers invId={invId} />}
+          {tab === 'Graph' && <Graph invId={invId} />}
+          {tab === 'Reports' && <Reports invId={invId} />}
+          {tab === 'Activity' && <Activity invId={invId} />}
+        </TabBoundary>}
       </main>
     </div>
   );

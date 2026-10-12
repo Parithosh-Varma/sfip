@@ -25,14 +25,6 @@ export default function Graph({ invId }) {
   const [view, setView] = useState({ x: 0, y: 0, k: 1 });
   const fitted = useRef(false);
 
-  // fit whole graph on first load; afterwards the user's view is never yanked
-  React.useEffect(() => {
-    if (!fitted.current && H > 0 && nodes.length > 0) {
-      fitted.current = true;
-      setView({ x: 0, y: 0, k: Math.min(1, Math.max(0.08, VB_H / H)) });
-    }
-  }, [H, nodes.length]);
-
   const paperById = useMemo(() => Object.fromEntries(papers.map((p) => [`p${p.id}`, p])), [papers]);
   const figById = useMemo(() => Object.fromEntries(figures.map((f) => [`f${f.id}`, f])), [figures]);
 
@@ -46,6 +38,16 @@ export default function Graph({ invId }) {
   // svg box has fixed aspect 1080:670 via CSS; viewBox keeps the same ratio,
   // so screen-px → svg-unit scale is uniform on both axes.
   const VB_H = (W / 1) * 0.62;
+
+  // fit whole graph on first load; afterwards the user's view is never yanked.
+  // NOTE: this effect must stay BELOW the layout useMemo — its dep array
+  // ([H, nodes.length]) evaluates during render.
+  React.useEffect(() => {
+    if (!fitted.current && H > 0 && nodes.length > 0) {
+      fitted.current = true;
+      setView({ x: 0, y: 0, k: Math.min(1, Math.max(0.08, VB_H / H)) });
+    }
+  }, [H, nodes.length]);
 
   function unitScale() {
     const r = svgRef.current.getBoundingClientRect();
