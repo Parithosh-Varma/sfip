@@ -25,10 +25,24 @@ Observe → Plan → Execute → Verify → Score → Update state → Select ne
 ## Signals (per figure pair)
 
 Perceptual hashes (pHash/dHash/aHash) → gate sweep → deep battery: SSIM over
-transformation variants (flips, rotations, stretch, center crops), HSV
-histogram intersection, ORB+RANSAC geometric verification, multi-scale
-containment for partial overlap → weighted fusion with false-positive
-heuristics (generic-content risk, small figures, conflicting signals).
+transformation variants (flips, exact + fine rotations ±15/30/45, stretch,
+center crops), including a contrast-enhanced (CLAHE) channel that defeats
+brightness/contrast concealment; HSV histogram intersection, ORB+RANSAC
+geometric verification, multi-scale containment for partial overlap →
+weighted fusion with false-positive heuristics (generic-content risk,
+small figures, conflicting signals).
+
+Within-image tamper screening (every figure): copy-move/clone-stamp detection
+(ORB self-match with translation clustering, incl. mirrored clones with pixel
+verification), western-blot anomaly checks (duplicated bands, splice edges).
+
+AI-provenance screening: file-metadata forensics (Stable Diffusion chunks,
+AI-tool tags, EXIF/XMP, C2PA manifests) on every figure; diffusion spectral
+screen + real watermark-provider hook (never faked) on suspicious figures.
+
+Methods inspired by the paper-mill forensics community (notably Sholto David's
+video investigations): flip/rotate/overlay comparison, brightness-adjusted
+inspection, clone-stamp and blot forensics, and SynthID/watermark checks.
 
 Language discipline: the system reports *observed image similarities* and
 characterizes evidence — it never equates similarity with fraud or intent.
@@ -58,5 +72,7 @@ external consequential actions (no allegations published, no researchers contact
 ## Layout
 
 `backend/app/` — `config.py` `db.py` `httpc.py` `sources.py` (OpenAlex/Crossref/Europe PMC)
-`pdfs.py` `vision.py` `scoring.py` `llm.py` `pipeline.py` `controller.py` `report.py`
-`api.py` (read-only + SSE) `main.py` · `dashboard/src/` — React observation UI
+`pdfs.py` `vision.py` `scoring.py` `tamper.py` (clone-stamp, blot forensics)
+`provenance.py` (metadata/C2PA/diffusion-screen/SynthID hook) `llm.py`
+`pipeline.py` `controller.py` `report.py` `api.py` (read-only + SSE) `main.py` ·
+`dashboard/src/` — React observation UI · `tests/` — offline pytest suite

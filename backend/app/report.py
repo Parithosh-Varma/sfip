@@ -112,6 +112,35 @@ def generate(inv_id: int) -> tuple[Path, str]:
                 L.append(f"  - weakness: {w}")
         L.append("")
 
+    # --- AI-provenance & tamper screening
+    L.append("## 4b. AI-provenance & tamper screening\n")
+    prov = db.query("SELECT e.*, f.paper_id, f.page FROM evidence e "
+                    "JOIN figures f ON f.id=e.subject_id "
+                    "WHERE e.investigation_id=? AND e.subject_type='figure' "
+                    "AND e.kind IN ('provenance','forensics') ORDER BY e.id", (inv_id,))
+    flagged_prov = [e for e in prov if "ai_tool_marked" in e["value"]
+                    or '"suspicion": "high"' in e["value"] or '"suspicion":"high"' in e["value"]
+                    or '"flag": true' in e["value"] or '"flag":true' in e["value"]]
+    L.append(f"- Figures screened: {len({e['subject_id'] for e in prov})}; "
+             f"flags raised: **{len(flagged_prov)}**")
+    L.append("- Layers: file-metadata forensics on every figure; copy-move (clone stamp), "
+             "blot-anomaly, diffusion spectral, and SynthID-provider checks on figures from "
+             "suspicious pairs. Absence of signals proves nothing (publishers strip metadata).")
+    for e in flagged_prov[:30]:
+        L.append(f"- figure {e['subject_id']} (paper {e['paper_id']}, p.{e['page']}) "
+                 f"[{e['method']}]: {e['interpretation']}")
+    L.append(f"- Figures screened: {len({e['subject_id'] for e in prov})}; "
+             f"high-suspicion flags: **{len(flagged_prov)}**")
+    L.append("- Layers: file-metadata forensics (generator tags, EXIF/XMP, C2PA manifest) on "
+             "every figure; diffusion spectral screen + SynthID provider check on figures from "
+             "suspicious pairs. Absence of signals proves nothing (publishers strip metadata).")
+    for e in flagged_prov[:30]:
+        L.append(f"- figure {e['subject_id']} (paper {e['paper_id']}, p.{e['page']}) "
+                 f"[{e['method']}]: {e['interpretation']}")
+    if not flagged_prov:
+        L.append("- No AI-generator markers or watermark detections recorded.")
+    L.append("")
+
     # --- uncertainty
     L.append("## 5. Uncertainty & conflicting evidence\n")
     conflicting = [c for c in cands if "conflicting_signals" in (c.get("flags_json") or "")]

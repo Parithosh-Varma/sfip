@@ -70,8 +70,8 @@ function Detail({ d }) {
         <div><span>flags</span><b>{flags.join(', ') || 'none'}</b></div>
       </div>
       <div className="pair-imgs">
-        <Fig side="A" f={d.figure_a} p={d.paper_a} />
-        <Fig side="B" f={d.figure_b} p={d.paper_b} />
+        <Fig side="A" f={d.figure_a} p={d.paper_a} ev={d.figure_a_evidence || []} />
+        <Fig side="B" f={d.figure_b} p={d.paper_b} ev={d.figure_b_evidence || []} />
       </div>
       <h3>signals</h3>
       <table className="sig-table">
@@ -103,12 +103,14 @@ function Detail({ d }) {
   );
 }
 
-function Fig({ side, f, p }) {
+function Fig({ side, f, p, ev }) {
   if (!f) return null;
   const src = mediaSrc(f.image_path);
+  const prov = (ev || []).filter((e) => e.kind === 'provenance' || e.kind === 'forensics');
   return (
     <div className="figbox">
       <div className="figbox-title">figure {f.id} ({side}) — paper {f.paper_id}, p.{f.page} {f.width}×{f.height}</div>
+      {prov.map((e) => <ProvChip key={e.id} e={e} />)}
       {src
         ? <a href={src} target="_blank" rel="noreferrer"><img src={src} alt={`figure ${f.id}`} loading="lazy" /></a>
         : <div className="muted">image unavailable</div>}
@@ -116,6 +118,17 @@ function Fig({ side, f, p }) {
       {p && <div className="muted">{p.title}</div>}
     </div>
   );
+}
+
+function ProvChip({ e }) {
+  let v = {};
+  try { v = JSON.parse(e.value || '{}'); } catch { /* raw string */ }
+  const hot = v.suspicion === 'high' || v.verdict === 'ai_tool_marked' || v.flag === true;
+  const label = v.suspicion ? `AI-provenance: ${v.suspicion}`
+    : v.flag === true ? `tamper: ${e.method}`
+    : `metadata: ${v.verdict || e.method}`;
+  const cls = hot ? 'v-high' : v.suspicion === 'medium' ? 'v-mod' : 'v-fp';
+  return <div className="prov" title={e.interpretation}><span className={`badge ${cls}`}>{label}</span></div>;
 }
 
 function mediaSrc(absPath) {

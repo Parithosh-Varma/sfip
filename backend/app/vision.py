@@ -212,6 +212,13 @@ def variant_set(gb: np.ndarray) -> list[tuple[str, np.ndarray]]:
     out.append(("rot90", arr(im.transpose(Image.ROTATE_90))))
     out.append(("rot180", arr(im.transpose(Image.ROTATE_180))))
     out.append(("rot270", arr(im.transpose(Image.ROTATE_270))))
+    # fine rotations (slight-angle fits are a classic concealment move)
+    h2, w2 = gb.shape
+    for deg in (15, 30, 45, -15, -30, -45):
+        M = cv2.getRotationMatrix2D((w2 / 2, h2 / 2), deg, 1.0)
+        out.append((f"rot{deg}", cv2.warpAffine(gb, M, (w2, h2),
+                                                flags=cv2.INTER_LINEAR,
+                                                borderMode=cv2.BORDER_REPLICATE)))
     for f in (0.8, 1.25):
         out.append((f"stretch_w{f}", arr(im.resize((max(8, int(w * f)), h)))))
     for frac in (0.75, 0.5):
@@ -254,6 +261,19 @@ def run_battery(path_a: Path, path_b: Path) -> dict:
     best_name, best_ssim = var_scores[0] if var_scores else ("identity", 0.0)
     best_orb = orb_results.get(best_name, {"inliers": 0})
 
+    # contrast-enhanced channel: brightness/contrast concealment is defeated by
+    # comparing CLAHE-equalized versions (gated by geometric support below)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    eq_scores = []
+    for name, gv in (("identity", gb), ("hflip", np.fliplr(gb)),
+                     ("vflip", np.flipud(gb)), ("rot180", np.rot90(gb, 2))):
+        try:
+            eq_scores.append((f"eq_{name}", round(ssim_score(clahe.apply(ga), clahe.apply(gv)), 4)))
+        except Exception:
+            continue
+    eq_scores.sort(key=lambda t: -t[1])
+    eq_name, eq_ssim = eq_scores[0] if eq_scores else ("eq_identity", 0.0)
+
     contain = containment_check(ga, gb)
     # containment may also be explained by a flip variant
     contain_flip = containment_check(ga, np.fliplr(gb))
@@ -265,9 +285,12 @@ def run_battery(path_a: Path, path_b: Path) -> dict:
         "ssim_by_variant": dict(var_scores),
         "orb_by_variant": orb_results,
         "containment": contain,
+        "equalized": {"variant": eq_name, "ssim": eq_ssim},
         "best": {
             "variant": best_name,
             "ssim": best_ssim,
+            "ssim_eq": eq_ssim,
+            "eq_variant": eq_name,
             "orb_inliers": int(best_orb.get("inliers", 0)),
             "orb_transform": best_orb.get("transform", "none"),
             "orb_coverage": round(float(best_orb.get("coverage", 0.0)), 4),

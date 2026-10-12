@@ -147,8 +147,12 @@ def candidate(cand_id: int) -> dict:
     pb = db.query_one("SELECT * FROM papers WHERE id=?", (fb["paper_id"],)) if fb else None
     evidence = db.query("SELECT * FROM evidence WHERE subject_type='candidate' AND subject_id=? ORDER BY id",
                         (cand_id,))
+    fig_ev_a = db.query("SELECT * FROM evidence WHERE subject_type='figure' AND subject_id=? ORDER BY id",
+                        (c["figure_a"],)) if fa else []
+    fig_ev_b = db.query("SELECT * FROM evidence WHERE subject_type='figure' AND subject_id=? ORDER BY id",
+                        (c["figure_b"],)) if fb else []
     return {"candidate": c, "figure_a": fa, "figure_b": fb, "paper_a": pa, "paper_b": pb,
-            "evidence": evidence,
+            "evidence": evidence, "figure_a_evidence": fig_ev_a, "figure_b_evidence": fig_ev_b,
             "interpretation": json.loads(c.get("interpretation_json") or "null")}
 
 

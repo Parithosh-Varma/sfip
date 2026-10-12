@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
-from . import db, httpc, llm, pdfs, sources, scoring, vision
+from . import db, httpc, llm, pdfs, provenance, sources, scoring, tamper, vision
 from .config import settings
 from .sources import DOI_RE
 
@@ -199,9 +199,52 @@ def h_extract_figures(inv_id: int, payload: dict) -> dict:
         keys = {k: v for k, v in f.items() if k in
                 ("page", "idx_in_page", "width", "height", "sha256", "phash", "dhash", "ahash",
                  "caption", "panel_labels", "image_path", "kind")}
-        if db.insert_figure(inv_id, paper["id"], added_at=db.now_iso(), **keys):
+        fid = db.insert_figure(inv_id, paper["id"], added_at=db.now_iso(), **keys)
+        if fid:
             inserted += 1
             db.bump_counter(inv_id, "figures")
+            # cheap metadata screen on EVERY figure at extraction time
+            try:
+                meta = provenance.metadata_screen(f["image_path"])
+                db.insert_evidence(
+                    inv_id, "figure", fid, "provenance", "metadata_screen",
+                    {"verdict": meta["verdict"], "ai_markers": meta["ai_markers"],
+                     "editor_markers": meta["editor_markers"],
+                     "c2pa_manifest_present": meta["c2pa_manifest_present"],
+                     "metadata_stripped": meta["metadata_stripped"]},
+                    interpretation=f"metadata provenance: {meta['verdict']}")
+                if meta["verdict"] == "ai_tool_marked":
+                    db.add_event(inv_id, "warn", "job:extract_figures",
+                                 f"figure {fid} carries AI-generator metadata markers",
+                                 {"figure": fid, "markers": meta["ai_markers"]})
+            except Exception as e:
+                db.insert_evidence(inv_id, "figure", fid, "provenance", "metadata_screen",
+                                   {"verdict": "error"}, interpretation=str(e)[:200])
+            # within-image tamper screens (clone stamp, blot anomalies) — cheap numpy/ORB
+            try:
+                gray = vision.load_gray(f["image_path"])
+                cl = tamper.clone_scan(gray)
+                db.insert_evidence(inv_id, "figure", fid, "forensics", "clone_scan",
+                                   {"flag": cl["flag"],
+                                    "clone_clusters": cl["clone_clusters"],
+                                    "largest_cluster_matches": cl.get("largest_cluster_matches", 0)},
+                                   interpretation=("possible copy-move cloning: "
+                                                   f"{cl['clone_clusters']} cluster(s)" if cl["flag"]
+                                                   else "no copy-move clusters"))
+                bl = tamper.blot_screen(gray)
+                db.insert_evidence(inv_id, "figure", fid, "forensics", "blot_screen",
+                                   {"flag": bl["flag"], "repeated_bands": bl["repeated_bands"],
+                                    "band_lag": bl.get("band_lag"), "band_corr": bl.get("band_corr"),
+                                    "splice_columns": bl.get("splice_columns", [])},
+                                   interpretation=("blot anomalies: repeated bands / splice edges"
+                                                   if bl["flag"] else "no blot anomalies"))
+                if cl["flag"] or bl["flag"]:
+                    db.add_event(inv_id, "warn", "job:extract_figures",
+                                 f"figure {fid} flagged by tamper screen "
+                                 f"(clone={cl['flag']}, blot={bl['flag']})", {"figure": fid})
+            except Exception as e:
+                db.insert_evidence(inv_id, "figure", fid, "forensics", "tamper_screen",
+                                   {"flag": False}, interpretation=str(e)[:200])
 
     db.execute("UPDATE papers SET status='extracted', n_figures=? WHERE id=?", (inserted, paper["id"]))
     # per-paper sweep key: every extraction schedules its own incremental sweep
@@ -300,9 +343,53 @@ def h_deep_compare(inv_id: int, payload: dict) -> dict:
     if fused["verdict"] in ("high", "moderate", "exact_duplicate"):
         db.enqueue_job(inv_id, "interpret", {"candidate_id": cand["id"]}, priority=8)
         db.enqueue_job(inv_id, "cross_check", {"candidate_id": cand["id"]}, priority=6)
+        # full AI-provenance battery on both figures of a suspicious pair
+        for fid in (cand["figure_a"], cand["figure_b"]):
+            db.enqueue_job(inv_id, "provenance", {"figure_id": fid}, priority=5,
+                           dedupe_key=f"prov:{fid}")
     elif fused["verdict"] == "weak" and fused["eig"] >= 0.5:
         db.enqueue_job(inv_id, "cross_check", {"candidate_id": cand["id"]}, priority=4)
     return {"verdict": fused["verdict"], "score": fused["score"], "eig": fused["eig"]}
+
+
+def h_provenance(inv_id: int, payload: dict) -> dict:
+    """Full AI-provenance battery (metadata + diffusion screen + SynthID hook)
+    for one figure. Runs selectively on figures from suspicious pairs."""
+    fig = _fig(payload["figure_id"])
+    if not fig or fig["investigation_id"] != inv_id:
+        return {"skipped": True}
+    result = provenance.run_provenance(fig["image_path"])
+    db.insert_evidence(inv_id, "figure", fig["id"], "provenance", "provenance_battery",
+                       {"suspicion": result["suspicion"], "reason": result["reason"],
+                        "diffusion_anomaly": result["diffusion"].get("anomaly"),
+                        "synthid": result["synthid"]},
+                       interpretation=f"AI-provenance suspicion: {result['suspicion']} — {result['reason']}")
+    # tamper screens too, so already-extracted figures get covered on rescan
+    try:
+        gray = vision.load_gray(fig["image_path"])
+        cl = tamper.clone_scan(gray)
+        db.insert_evidence(inv_id, "figure", fig["id"], "forensics", "clone_scan",
+                           {"flag": cl["flag"], "clone_clusters": cl["clone_clusters"],
+                            "largest_cluster_matches": cl.get("largest_cluster_matches", 0)},
+                           interpretation=("possible copy-move cloning: "
+                                           f"{cl['clone_clusters']} cluster(s)" if cl["flag"]
+                                           else "no copy-move clusters"))
+        bl = tamper.blot_screen(gray)
+        db.insert_evidence(inv_id, "figure", fig["id"], "forensics", "blot_screen",
+                           {"flag": bl["flag"], "repeated_bands": bl["repeated_bands"],
+                            "band_corr": bl.get("band_corr"),
+                            "splice_columns": bl.get("splice_columns", [])},
+                           interpretation=("blot anomalies: repeated bands / splice edges"
+                                           if bl["flag"] else "no blot anomalies"))
+    except Exception as e:
+        db.insert_evidence(inv_id, "figure", fig["id"], "forensics", "tamper_screen",
+                           {"flag": False}, interpretation=str(e)[:200])
+    if result["suspicion"] == "high":
+        db.add_event(inv_id, "warn", "job:provenance",
+                     f"figure {fig['id']} (paper {fig['paper_id']}, p.{fig['page']}) shows "
+                     f"HIGH AI-provenance suspicion: {result['reason']}",
+                     {"figure": fig["id"]})
+    return {"suspicion": result["suspicion"]}
 
 
 def h_cross_check(inv_id: int, payload: dict) -> dict:
@@ -388,6 +475,7 @@ HANDLERS = {
     "extract_figures": h_extract_figures,
     "sweep": h_sweep,
     "deep_compare": h_deep_compare,
+    "provenance": h_provenance,
     "cross_check": h_cross_check,
     "interpret": h_interpret,
     "finalize_report": h_finalize_report,

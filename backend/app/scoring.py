@@ -39,12 +39,18 @@ def fuse_battery(battery: dict, fig_a: dict, fig_b: dict) -> dict:
 
     # base fusion (weights sum to 1)
     score = 0.25 * hash_sim + 0.15 * hist_sim + 0.30 * ssim_sim + 0.30 * orb_sim
+    flags: list[str] = []
     # containment (partial overlap) can dominate when it's decisive
     if contain_sim > 0.75:
         score = max(score, 0.75 * contain_sim + 0.15 * ssim_sim + 0.10 * hash_sim)
+    # contrast-enhanced channel: a match that only appears after equalization
+    # counts ONLY with independent geometric support (anti-false-positive gate)
+    ssim_eq = float(best.get("ssim_eq", 0.0) or 0.0)
+    if ssim_eq > 0.80 and (orb_inliers >= settings.gate_orb_inliers or contain_sim > 0.7):
+        score = max(score, round(0.80 * ssim_eq + 0.20 * orb_sim, 4))
+        flags.append("contrast_concealed_match")
     score = round(_clamp(score), 4)
 
-    flags: list[str] = []
     # exact duplicate?
     if fig_a.get("sha256") and fig_a.get("sha256") == fig_b.get("sha256"):
         flags.append("exact_duplicate_bytes")
@@ -92,6 +98,8 @@ def fuse_battery(battery: dict, fig_a: dict, fig_b: dict) -> dict:
             "hash_similarity": hash_sim,
             "histogram_similarity": hist_sim,
             "ssim": ssim_sim,
+            "ssim_equalized": round(ssim_eq, 4),
+            "eq_variant": best.get("eq_variant"),
             "orb_geometric": round(orb_sim, 4),
             "orb_inliers": orb_inliers,
             "orb_transform": best.get("orb_transform"),
