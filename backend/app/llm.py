@@ -96,6 +96,8 @@ def _chat(messages: list, require_json: bool = True) -> str:
 
 
 def _parse_json(text: str) -> dict:
+    if not isinstance(text, str):
+        raise ValueError(f"no JSON object in non-string response ({type(text).__name__})")
     m = re.search(r"\{.*\}", text, re.DOTALL)
     if not m:
         raise ValueError("no JSON object in response")
@@ -174,7 +176,7 @@ def interpret_candidate(cand: dict, fig_a: dict, fig_b: dict,
         out["used_images"] = used_images
         out["fallback"] = False
         return out
-    except (LLMUnavailable, ValueError, json.JSONDecodeError) as e:
+    except (LLMUnavailable, ValueError, TypeError, json.JSONDecodeError) as e:
         return _heuristic_interpretation(cand, fig_a, fig_b, e)
 
 
