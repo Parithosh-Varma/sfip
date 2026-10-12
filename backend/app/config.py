@@ -22,6 +22,23 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _llm_keys() -> tuple:
+    raw = (os.getenv("NVAPI_KEYS", "") + "," + os.getenv("NVAPI_KEY", "")).split(",")
+    seen: list[str] = []
+    for k in raw:
+        k = k.strip().strip('"').strip("'")
+        if k and k not in seen:
+            seen.append(k)
+    return tuple(seen)
+
+
 @dataclass(frozen=True)
 class Settings:
     # --- paths -----------------------------------------------------------------
@@ -38,12 +55,12 @@ class Settings:
     user_agent: str = "sfip/0.1 (autonomous scientific-image forensics research tool; polite crawler)"
 
     # --- global budgets (per investigation) ------------------------------------
-    max_papers: int = _env_int("SFIP_MAX_PAPERS", 40)
-    max_figures: int = _env_int("SFIP_MAX_FIGURES", 800)
-    max_comparisons: int = _env_int("SFIP_MAX_COMPARISONS", 20000)
-    max_llm_calls: int = _env_int("SFIP_MAX_LLM_CALLS", 80)
-    max_runtime_minutes: int = _env_int("SFIP_MAX_RUNTIME_MINUTES", 180)
-    max_download_mb: int = _env_int("SFIP_MAX_DOWNLOAD_MB", 500)
+    max_papers: int = _env_int("SFIP_MAX_PAPERS", 150)
+    max_figures: int = _env_int("SFIP_MAX_FIGURES", 3000)
+    max_comparisons: int = _env_int("SFIP_MAX_COMPARISONS", 200000)
+    max_llm_calls: int = _env_int("SFIP_MAX_LLM_CALLS", 500)
+    max_runtime_minutes: int = _env_int("SFIP_MAX_RUNTIME_MINUTES", 720)
+    max_download_mb: int = _env_int("SFIP_MAX_DOWNLOAD_MB", 5000)
 
     # --- job execution ---------------------------------------------------------
     max_job_attempts: int = 3
@@ -53,10 +70,10 @@ class Settings:
     plan_llm_every_n_jobs: int = 25        # advisory LLM plan cadence (bounded)
 
     # --- rate limits (requests / second, per source) ---------------------------
-    rps_openalex: float = 2.0
-    rps_crossref: float = 2.0
-    rps_europepmc: float = 2.0
-    rps_pdf: float = 1.0
+    rps_openalex: float = _env_float("SFIP_RPS_OPENALEX", 8.0)
+    rps_crossref: float = _env_float("SFIP_RPS_CROSSREF", 8.0)
+    rps_europepmc: float = _env_float("SFIP_RPS_EUROPEPMC", 4.0)
+    rps_pdf: float = _env_float("SFIP_RPS_PDF", 4.0)
     http_retries: int = 3
     http_timeout: float = 45.0
 
@@ -74,7 +91,11 @@ class Settings:
     # --- LLM (NVIDIA NIM, multimodal) ------------------------------------------
     llm_base_url: str = os.getenv("SFIP_LLM_BASE_URL", "https://integrate.api.nvidia.com/v1")
     llm_model: str = os.getenv("SFIP_LLM_MODEL", "meta/muse-glimmer-30b")
-    llm_api_key: str = os.getenv("NVAPI_KEY", "")
+    llm_api_keys: tuple = _llm_keys()
+
+    @property
+    def llm_api_key(self) -> str:
+        return self.llm_api_keys[0] if self.llm_api_keys else ""
     llm_max_tokens: int = 1400
     llm_temperature: float = 0.15
     llm_timeout: float = 120.0
@@ -95,7 +116,9 @@ class Settings:
         for k in ("root", "data_dir", "db_path", "pdfs_dir", "figures_dir", "reports_dir", "static_dir"):
             d[k] = str(d[k])
         d.pop("llm_api_key", None)          # never persist secrets
-        d["llm_api_key_set"] = bool(self.llm_api_key)
+        d.pop("llm_api_keys", None)
+        d["llm_api_key_set"] = bool(self.llm_api_keys)
+        d["llm_api_key_count"] = len(self.llm_api_keys)
         return d
 
 

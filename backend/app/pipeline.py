@@ -204,7 +204,9 @@ def h_extract_figures(inv_id: int, payload: dict) -> dict:
             db.bump_counter(inv_id, "figures")
 
     db.execute("UPDATE papers SET status='extracted', n_figures=? WHERE id=?", (inserted, paper["id"]))
-    db.enqueue_job(inv_id, "sweep", {}, priority=3, dedupe_key="sweep")
+    # per-paper sweep key: every extraction schedules its own incremental sweep
+    # (the watermark in h_sweep makes repeats cheap and idempotent)
+    db.enqueue_job(inv_id, "sweep", {}, priority=3, dedupe_key=f"sweep:paper:{paper['id']}")
     db.add_event(inv_id, "info", "job:extract_figures",
                  f"extracted {inserted} figure(s) from paper {paper['id']}", {})
     return {"figures": inserted}

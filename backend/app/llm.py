@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import io
+import itertools
 import json
 import re
 from typing import Optional
@@ -18,8 +19,15 @@ from PIL import Image
 
 from .config import settings
 
+_key_cycle = itertools.count()
+
 
 class LLMUnavailable(Exception):
+    pass
+
+
+class _KeyExhausted(Exception):
+    """Rate-limited / rejected key — try the next one."""
     pass
 
 
@@ -40,9 +48,7 @@ def _vision_data_url(path: str) -> Optional[str]:
         return None
 
 
-def _chat(messages: list, require_json: bool = True) -> str:
-    if not settings.llm_api_key:
-        raise LLMUnavailable("no API key configured")
+def _post(messages: list, key: str, require_json: bool) -> str:
     payload = {
         "model": settings.llm_model,
         "messages": messages,
@@ -51,20 +57,42 @@ def _chat(messages: list, require_json: bool = True) -> str:
     }
     if require_json:
         payload["response_format"] = {"type": "json_object"}
-    last: Optional[Exception] = None
-    for _ in range(2):
-        try:
-            with httpx.Client(base_url=settings.llm_base_url, timeout=settings.llm_timeout) as c:
+    try:
+        with httpx.Client(base_url=settings.llm_base_url, timeout=settings.llm_timeout) as c:
+            r = c.post("/chat/completions", json=payload,
+                       headers={"Authorization": f"Bearer {key}"})
+            if r.status_code in (401, 403, 429):
+                raise _KeyExhausted(f"HTTP {r.status_code}")
+            if r.status_code == 400 and "response_format" in r.text:
+                payload.pop("response_format", None)   # model may not support it
                 r = c.post("/chat/completions", json=payload,
-                           headers={"Authorization": f"Bearer {settings.llm_api_key}"})
-                if r.status_code == 400 and "response_format" in json.dumps(r.text):
-                    payload.pop("response_format", None)   # model may not support it
-                    continue
-                r.raise_for_status()
-                return r.json()["choices"][0]["message"]["content"]
-        except Exception as e:                              # bounded retry, then fallback
+                           headers={"Authorization": f"Bearer {key}"})
+                if r.status_code in (401, 403, 429):
+                    raise _KeyExhausted(f"HTTP {r.status_code}")
+            r.raise_for_status()
+            return r.json()["choices"][0]["message"]["content"]
+    except (httpx.HTTPError, httpx.TimeoutException) as e:
+        raise LLMUnavailable(str(e)[:300])
+
+
+def _chat(messages: list, require_json: bool = True) -> str:
+    keys = list(settings.llm_api_keys)
+    if not keys:
+        raise LLMUnavailable("no API key configured")
+    last: Optional[Exception] = LLMUnavailable("all keys exhausted")
+    # round-robin start spreads load; fail over across keys (bounded)
+    start = next(_key_cycle) % len(keys)
+    for i in range(min(len(keys), 8)):
+        key = keys[(start + i) % len(keys)]
+        try:
+            return _post(messages, key, require_json)
+        except _KeyExhausted as e:
             last = e
-    raise LLMUnavailable(str(last))
+            continue
+        except LLMUnavailable as e:
+            last = e
+            break  # network/transport error — retrying another key won't help
+    raise last if isinstance(last, Exception) else LLMUnavailable(str(last))
 
 
 def _parse_json(text: str) -> dict:
@@ -75,7 +103,7 @@ def _parse_json(text: str) -> dict:
 
 
 def llm_available() -> bool:
-    return bool(settings.llm_api_key)
+    return bool(settings.llm_api_keys)
 
 
 # --- grounded interpretation --------------------------------------------------
