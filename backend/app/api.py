@@ -231,6 +231,28 @@ def export(inv_id: int) -> StreamingResponse:
                              headers={"Content-Disposition": f'attachment; filename="investigation_{inv_id}.json"'})
 
 
+@app.get("/api/stream/{inv_id}")
+async def stream(inv_id: int, after: int = 0) -> StreamingResponse:
+    """Server-sent events: live activity feed for the dashboard."""
+    import asyncio
+    _inv_or_404(inv_id)
+
+    async def gen():
+        cursor = after
+        while True:
+            rows = db.query("SELECT * FROM events WHERE investigation_id=? AND id>? ORDER BY id LIMIT 100",
+                            (inv_id, cursor))
+            for r in rows:
+                cursor = r["id"]
+                yield f"data: {json.dumps(r, default=str)}\n\n"
+            if not rows:
+                yield ": keepalive\n\n"
+            await asyncio.sleep(2.0)
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @app.get("/media/{path:path}")
 def media(path: str) -> FileResponse:
     target = (settings.data_dir / path).resolve()
