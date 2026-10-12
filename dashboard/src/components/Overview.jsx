@@ -27,12 +27,24 @@ export default function Overview({ invId, active }) {
   const phase = detail?.investigation?.state?.phase || (detail?.investigation?.status === 'running' ? '…' : '—');
   const llmPlan = detail?.investigation?.state?.llm_plan;
 
+  // heartbeat: how long since the last recorded activity + average throughput,
+  // so a plateau in one counter never reads as a stalled run
+  const lastTs = events.length ? events[0].ts : detail?.investigation?.updated_at;
+  const lastAge = lastTs ? Math.max(0, Math.round((Date.now() - new Date(lastTs).getTime()) / 1000)) : null;
+  const started = detail?.investigation?.started_at;
+  const runMin = started ? Math.max(1 / 60, (Date.now() - new Date(started).getTime()) / 60000) : null;
+  const rate = runMin ? (int(counters.jobs_done) / runMin) : null;
+
   return (
     <div className="grid">
       <section className="card">
         <h2>Controller</h2>
         <div className="kv">
           <div><span>phase</span><b>{phase}</b></div>
+          <div><span>heartbeat</span><b>
+            {lastAge == null ? '—' : lastAge < 8 ? `active ${lastAge}s ago` : `idle ${fmtAge(lastAge)}`}
+            {rate != null && ` · ~${rate.toFixed(1)} jobs/min`}
+          </b></div>
           <div><span>jobs done</span><b>{int(counters.jobs_done)}</b></div>
           <div><span>queue</span><b>
             {Object.entries(queue).map(([k, v]) => `${k}:${v}`).join(' · ') || 'empty'}
@@ -91,5 +103,10 @@ import { useState as useStateSafe } from 'react';
 
 export function fmtTs(ts) {
   try { return new Date(ts).toLocaleTimeString(); } catch { return ts; }
+}
+export function fmtAge(s) {
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  return `${Math.floor(s / 3600)}h ago`;
 }
 function int(x) { return x == null ? 0 : Math.round(Number(x)); }
